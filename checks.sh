@@ -4,8 +4,8 @@ set -u
 # set -x
 
 function find_src {
-  files=`find itsy -type f | grep "py\$"`
-  files+=" itsy-init.py"
+  files=`find condense -type f | grep "py\$"`
+  files+=" condenser.py"
   echo $files
 }
 

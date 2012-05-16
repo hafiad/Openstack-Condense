@@ -1,2 +1,3 @@
-python-cheetah
-python-boto
+cheetah
+boto
+pyyaml

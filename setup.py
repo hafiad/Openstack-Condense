@@ -40,18 +40,17 @@ def get_version(fn='version.txt'):
         return fh.read().strip()
 
 
-setup(name='itsy-init',
+setup(name='condense',
       version=get_version(),
-      description='EC2 initialisation magic',
+      description='Condensed EC2 initialization magic',
       author='Yahoo!',
       author_email='openstack-dev@yahoo-inc.com',
       packages=find_packages(),
-      scripts=['itsy-init.py'],
+      scripts=['condenser.py'],
       install_requires=parse_requires(),
-      data_files=[('/etc/itsy', glob('config/*.cfg')),
-                  ('/etc/itsy/itsy.cfg.d', glob('config/itsy.cfg.d/*')),
-                  ('/etc/itsy/templates', glob('templates/*')),
-                  ('/usr/share/itsy-init', []),
-                  ('/usr/libexec/itsy-init', []),
+      data_files=[('/etc/condense', glob('config/*.cfg')),
+                  ('/etc/condense/templates', glob('templates/*')),
+                  ('/usr/share/condense-init', []),
+                  ('/usr/libexec/condense-init', []),
                   ],
       )
