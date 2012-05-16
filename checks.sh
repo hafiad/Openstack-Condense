@@ -4,8 +4,8 @@ set -u
 # set -x
 
 function find_src {
-  files=`find cloudinit -type f | grep "py\$"`
-  files+=" cloud-init-cfg.py  cloud-init.py"
+  files=`find itsy -type f | grep "py\$"`
+  files+=" itsy-init.py"
   echo $files
 }
 

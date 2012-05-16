@@ -18,31 +18,40 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-from distutils.core import setup
 from glob import glob
-import os.path
-import subprocess
+from setuptools import (setup, find_packages)
 
-def is_f(p):
-    return(os.path.isfile(p))
 
-setup(name='mino-cloud-init',
-      version='0.6.3',
+def parse_requires(fn='requires.txt'):
+    requires = []
+    with open(fn, 'r') as fh:
+        lines = fh.read().splitlines()
+    for line in lines:
+        line = line.strip()
+        if not line or line[0] == '#':
+            continue
+        else:
+            requires.append(line)
+    return requires
+
+
+def get_version(fn='version.txt'):
+    with open(fn, 'r') as fh:
+        return fh.read().strip()
+
+
+setup(name='itsy-init',
+      version=get_version(),
       description='EC2 initialisation magic',
-      author='Scott Moser',
-      author_email='scott.moser@canonical.com',
-      url='http://launchpad.net/cloud-init/',
-      packages=['cloudinit', 'cloudinit.CloudConfig' ],
-      scripts=['cloud-init.py',
-               'cloud-init-cfg.py',
-               ],
-      data_files=[('/etc/cloud', glob('config/*.cfg')),
-                  ('/etc/cloud/cloud.cfg.d', glob('config/cloud.cfg.d/*')),
-                  ('/etc/cloud/templates', glob('templates/*')),
-                  ('/usr/share/cloud-init', []),
-                  ('/usr/libexec/cloud-init', []),
-                  ('/usr/share/doc/cloud-init', filter(is_f,glob('doc/*'))),
-                  ('/usr/share/doc/cloud-init/examples', filter(is_f,glob('doc/examples/*'))),
-                  ('/usr/share/doc/cloud-init/examples/seed', filter(is_f,glob('doc/examples/seed/*'))),
+      author='Yahoo!',
+      author_email='openstack-dev@yahoo-inc.com',
+      packages=find_packages(),
+      scripts=['itsy-init.py'],
+      install_requires=parse_requires(),
+      data_files=[('/etc/itsy', glob('config/*.cfg')),
+                  ('/etc/itsy/itsy.cfg.d', glob('config/itsy.cfg.d/*')),
+                  ('/etc/itsy/templates', glob('templates/*')),
+                  ('/usr/share/itsy-init', []),
+                  ('/usr/libexec/itsy-init', []),
                   ],
       )
