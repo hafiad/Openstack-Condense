@@ -19,16 +19,13 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import errno
-import logging
 import os
 import platform
 import pprint
 import re
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import traceback
 import urllib
@@ -36,15 +33,12 @@ import urllib2
 import urlparse
 import yaml
 
+import condense.log as logging
+import condense.settings as settings
+
 from Cheetah.Template import Template
 
-try:
-    import selinux
-    HAVE_LIBSELINUX = True
-except ImportError:
-    HAVE_LIBSELINUX = False
-    
-log = logging.getLogger('itsyinit')
+log = logging.getLogger()
 
 DEB_PLATFORM = 'debian'
 RH_PLATFORM = 'redhat'
@@ -53,18 +47,19 @@ PLATFORM_LOOKUPS = {
     r'redhat': RH_PLATFORM,
     r"ubuntu": DEB_PLATFORM,
 }
+TMP_TPL = '/etc/cloud/templates/%s.tmpl'
 
 
 def read_conf(fname):
     try:
-        stream = open(fname, "r")
-        data = stream.read()
-        data = data.strip()
-        if not data:
-            conf = {}
-        else:
-            conf = yaml.load(data)
-        stream.close()
+        with open(fname, "r") as stream:
+            data = stream.read()
+            data = data.strip()
+            if not data:
+                conf = {}
+            else:
+                conf = yaml.load(data)
+            stream.close()
         return conf
     except IOError as e:
         if e.errno == errno.ENOENT:
@@ -79,10 +74,6 @@ def get_base_cfg(cfgfile, cfg_builtin=None, parsed_cfgs=None):
         return(parsed_cfgs[cfgfile])
 
     syscfg = read_conf_with_confd(cfgfile)
-
-    kern_contents = read_cc_from_cmdline()
-    if kern_contents:
-        kerncfg = yaml.load(kern_contents)
 
     # kernel parameters override system config
     combined = mergedict(kerncfg, syscfg)
@@ -99,11 +90,12 @@ def get_base_cfg(cfgfile, cfg_builtin=None, parsed_cfgs=None):
 
 
 def get_cfg_option_bool(yobj, key, default=False):
+    log.debug("Looking for %s in %s", key, yobj)
     if key not in yobj:
         return default
     val = yobj[key]
-    if val is True:
-        return True
+    if type(val) is bool:
+        return val
     if str(val).lower() in ['true', '1', 'on', 'yes']:
         return True
     return False
@@ -161,20 +153,6 @@ def mergedict(src, cand):
     return src
 
 
-def delete_dir_contents(dirname):
-    """
-    Deletes all contents of a directory without deleting the directory itself.
-
-    @param dirname: The directory whose contents should be deleted.
-    """
-    for node in os.listdir(dirname):
-        node_fullpath = os.path.join(dirname, node)
-        if os.path.isdir(node_fullpath):
-            shutil.rmtree(node_fullpath)
-        else:
-            os.unlink(node_fullpath)
-
-
 def determine_platform():
     run_plt = platform.platform()
     for pt, plt in PLATFORM_LOOKUPS.items():
@@ -210,198 +188,48 @@ def write_file(filename, content, mode=0644, omode="wb"):
         if e.errno != errno.EEXIST:
             raise e
 
-    log.debug("Writing to %s (%o)(%s) - %s bytes", filename, mode, omode, len(content))
-    log.debug(content)
-    f = open(filename, omode)
-    if mode is not None:
-        os.chmod(filename, mode)
+    log.info("Writing to %s (%o)(%s) - %s bytes", filename, mode, omode, len(content))
+    for line in content.splitlines():
+        log.info("> %s", line)
 
-    f.write(content)
-    f.close()
-    restorecon_if_possible(filename)
-
-
-def restorecon_if_possible(path, recursive=False):
-    if HAVE_LIBSELINUX and selinux.is_selinux_enabled():
-        selinux.restorecon(path, recursive=recursive)
+    with open(filename, omode) as f:
+        f.write(content)
+        f.flush()
+        if mode is not None:
+            os.chmod(filename, mode)
 
 
-# get keyid from keyserver
-def getkeybyid(keyid, keyserver):
-    shcmd = """
-    k=${1} ks=${2};
-    exec 2>/dev/null
-    [ -n "$k" ] || exit 1;
-    armour=$(gpg --list-keys --armour "${k}")
-    if [ -z "${armour}" ]; then
-       gpg --keyserver ${ks} --recv $k >/dev/null &&
-          armour=$(gpg --export --armour "${k}") &&
-          gpg --batch --yes --delete-keys "${k}"
-    fi
-    [ -n "${armour}" ] && echo "${armour}"
-    """
-    args = ['sh', '-c', shcmd, "export-gpg-keyid", keyid, keyserver]
-    return(subp(args)[0])
-
-
-def runparts(dirp, skip_no_exist=True):
-    if skip_no_exist and not os.path.isdir(dirp):
-        return
-
-    failed = 0
-    for exe_name in sorted(os.listdir(dirp)):
-        exe_path = os.path.join(dirp, exe_name)
-        if os.path.isfile(exe_path) and os.access(exe_path, os.X_OK):
-            popen = subprocess.Popen([exe_path])
-            popen.communicate()
-            if popen.returncode is not 0:
-                failed += 1
-                print >> sys.stderr, exe_path, 'failed; code', popen.returncode
-    if failed:
-        raise RuntimeError('runparts: %i failures' % failed)
-
-
-def subp(args, input_=None):
+def subp(args, input_=None, allowed_rcs=None):
+    if not allowed_rcs:
+        allowed_rcs = [0]
+    log.info("Running command: `%s` with allowed return codes (%s)",
+            " ".join(args), ", ".join([str(rc) for rc in allowed_rcs]))
     sp = subprocess.Popen(args, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, stdin=subprocess.PIPE)
-    out, err = sp.communicate(input_)
-    if sp.returncode is not 0:
+    if input_ is not None:
+        out, err = sp.communicate(input_)
+    else:
+        out, err = sp.communicate()
+    if sp.returncode not in allowed_rcs:
         raise subprocess.CalledProcessError(sp.returncode, args)
     return (out, err)
 
 
 def render_to_file(template, outfile, searchList):
-    t = Template(file='/etc/cloud/templates/%s.tmpl' % template,
-                 searchList=[searchList])
-    f = open(outfile, 'w')
-    f.write(t.respond())
-    f.close()
+    fn = settings.template_tpl % template
+    t = Template(file=fn, searchList=[searchList])
+    with open(outfile, 'w') as f:
+        f.write(t.respond())
 
 
 def render_string(template, searchList):
-    return(Template(template, searchList=[searchList]).respond())
-
-
-# read_optional_seed
-# returns boolean indicating success or failure (presense of files)
-# if files are present, populates 'fill' dictionary with 'user-data' and
-# 'meta-data' entries
-def read_optional_seed(fill, base="", ext="", timeout=5):
-    try:
-        (md, ud) = read_seeded(base, ext, timeout)
-        fill['user-data'] = ud
-        fill['meta-data'] = md
-        return True
-    except OSError, e:
-        if e.errno == errno.ENOENT:
-            return False
-        raise
-
-
-# raise OSError with enoent if not found
-def read_seeded(base="", ext="", timeout=5, retries=10, file_retries=0):
-    if base.startswith("/"):
-        base = "file://%s" % base
-
-    # default retries for file is 0. for network is 10
-    if base.startswith("file://"):
-        retries = file_retries
-
-    if base.find("%s") >= 0:
-        ud_url = base % ("user-data" + ext)
-        md_url = base % ("meta-data" + ext)
-    else:
-        ud_url = "%s%s%s" % (base, "user-data", ext)
-        md_url = "%s%s%s" % (base, "meta-data", ext)
-
-    log.info("Looking at url %r for the user data", ud_url)
-    log.info("Looking at url %r for the meta data", md_url)
-
-    no_exc = object()
-    raise_err = no_exc
-    for attempt in range(0, retries + 1):
-        try:
-            md_str = readurl(md_url, timeout=timeout)
-            ud = readurl(ud_url, timeout=timeout)
-            md = yaml.load(md_str)
-
-            return(md, ud)
-        except urllib2.HTTPError as e:
-            raise_err = e
-        except urllib2.URLError as e:
-            raise_err = e
-            if (isinstance(e.reason, OSError) and
-                e.reason.errno == errno.ENOENT):
-                raise_err = e.reason
-
-        if attempt == retries:
-            break
-
-        #print "%s failed, sleeping" % attempt
-        time.sleep(1)
-
-    raise(raise_err)
+    return Template(template, searchList=[searchList]).respond()
 
 
 def logexc(logger, lvl=logging.DEBUG):
     if not logger:
         logger = log
     logger.log(lvl, traceback.format_exc())
-
-
-class RecursiveInclude(Exception):
-    pass
-
-
-def read_file_with_includes(fname, rel=".", stack=None, patt=None):
-    if stack is None:
-        stack = []
-    if not fname.startswith("/"):
-        fname = os.sep.join((rel, fname))
-
-    fname = os.path.realpath(fname)
-
-    if fname in stack:
-        raise(RecursiveInclude("%s recursively included" % fname))
-    if len(stack) > 10:
-        raise(RecursiveInclude("%s included, stack size = %i" %
-                               (fname, len(stack))))
-
-    if patt == None:
-        patt = re.compile("^#(opt_include|include)[ \t].*$", re.MULTILINE)
-
-    try:
-        fp = open(fname)
-        contents = fp.read()
-        fp.close()
-    except:
-        raise
-
-    rel = os.path.dirname(fname)
-    stack.append(fname)
-
-    cur = 0
-    while True:
-        match = patt.search(contents[cur:])
-        if not match:
-            break
-        loc = match.start() + cur
-        endl = match.end() + cur
-
-        (key, cur_fname) = contents[loc:endl].split(None, 2)
-        cur_fname = cur_fname.strip()
-
-        try:
-            inc_contents = read_file_with_includes(cur_fname, rel, stack, patt)
-        except IOError, e:
-            if e.errno == errno.ENOENT and key == "#opt_include":
-                inc_contents = ""
-            else:
-                raise
-        contents = contents[0:loc] + inc_contents + contents[endl + 1:]
-        cur = loc + len(inc_contents)
-    stack.pop()
-    return(contents)
 
 
 def read_conf_d(confd):
@@ -434,74 +262,28 @@ def read_conf_with_confd(cfgfile):
         confd = "%s.d" % cfgfile
 
     if not confd:
-        return(cfg)
+        return cfg
 
     confd_cfg = read_conf_d(confd)
-
-    return(mergedict(confd_cfg, cfg))
-
-
-def get_cmdline():
-    if 'DEBUG_PROC_CMDLINE' in os.environ:
-        cmdline = os.environ["DEBUG_PROC_CMDLINE"]
-    else:
-        try:
-            cmdfp = open("/proc/cmdline")
-            cmdline = cmdfp.read().strip()
-            cmdfp.close()
-        except:
-            cmdline = ""
-    return(cmdline)
-
-
-def read_cc_from_cmdline(cmdline=None):
-    # this should support reading cloud-config information from
-    # the kernel command line.  It is intended to support content of the
-    # format:
-    #  cc: <yaml content here> [end_cc]
-    # this would include:
-    # cc: ssh_import_id: [smoser, kirkland]\\n
-    # cc: ssh_import_id: [smoser, bob]\\nruncmd: [ [ ls, -l ], echo hi ] end_cc
-    # cc:ssh_import_id: [smoser] end_cc cc:runcmd: [ [ ls, -l ] ] end_cc
-    if cmdline is None:
-        cmdline = get_cmdline()
-
-    tag_begin = "cc:"
-    tag_end = "end_cc"
-    begin_l = len(tag_begin)
-    end_l = len(tag_end)
-    clen = len(cmdline)
-    tokens = []
-    begin = cmdline.find(tag_begin)
-    while begin >= 0:
-        end = cmdline.find(tag_end, begin + begin_l)
-        if end < 0:
-            end = clen
-        tokens.append(cmdline[begin + begin_l:end].lstrip().replace("\\n",
-                                                                    "\n"))
-
-        begin = cmdline.find(tag_begin, end + end_l)
-
-    return('\n'.join(tokens))
+    return mergedict(confd_cfg, cfg)
 
 
 def ensure_dirs(dirlist, mode=0755):
     fixmodes = []
     for d in dirlist:
-        log.debug("Making dir %s", d)
-        try:
-            if mode != None:
-                os.makedirs(d)
-            else:
-                os.makedirs(d, mode)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-            if mode != None:
-                fixmodes.append(d)
-
-    for d in fixmodes:
-        os.chmod(d, mode)
+        if not os.path.isdir(d):
+            try:
+                if mode != None:
+                    os.makedirs(d)
+                else:
+                    os.makedirs(d, mode)
+            except OSError as e:
+                if e.errno != errno.EEXIST:
+                    raise
+                if mode != None:
+                    fixmodes.append(d)
+        for d in fixmodes:
+            os.chmod(d, mode)
 
 
 def chownbyname(fname, user=None, group=None):
@@ -562,83 +344,19 @@ def dos2unix(string):
     return(string.replace('\r\n', '\n'))
 
 
-def is_container():
-    # is this code running in a container of some sort
-
-    for helper in ('running-in-container', 'lxc-is-container'):
-        try:
-            # try to run a helper program. if it returns true
-            # then we're inside a container. otherwise, no
-            sp = subprocess.Popen(helper, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-            sp.communicate(None)
-            return(sp.returncode == 0)
-        except OSError as e:
-            if e.errno != errno.ENOENT:
-                raise
-
-    # this code is largely from the logic in
-    # ubuntu's /etc/init/container-detect.conf
-    try:
-        # Detect old-style libvirt
-        # Detect OpenVZ containers
-        pid1env = get_proc_env(1)
-        if "container" in pid1env:
-            return True
-
-        if "LIBVIRT_LXC_UUID" in pid1env:
-            return True
-
-    except IOError as e:
-        if e.errno != errno.ENOENT:
-            pass
-
-    # Detect OpenVZ containers
-    if os.path.isdir("/proc/vz") and not os.path.isdir("/proc/bc"):
-        return True
-
-    try:
-        # Detect Vserver containers
-        with open("/proc/self/status") as fp:
-            lines = fp.read().splitlines()
-            for line in lines:
-                if line.startswith("VxID:"):
-                    (_key, val) = line.strip().split(":", 1)
-                    if val != "0":
-                        return True
-    except IOError as e:
-        if e.errno != errno.ENOENT:
-            pass
-
-    return False
-
-
-def get_proc_env(pid):
-    # return the environment in a dict that a given process id was started with
-    env = {}
-    with open("/proc/%s/environ" % pid) as fp:
-        toks = fp.read().split("\0")
-        for tok in toks:
-            if tok == "":
-                continue
-            (name, val) = tok.split("=", 1)
-            env[name] = val
-    return env
-
-
 def get_hostname_fqdn(cfg, cloud):
     # return the hostname and fqdn from 'cfg'.  If not found in cfg,
     # then fall back to data from cloud
     if "fqdn" in cfg:
         # user specified a fqdn.  Default hostname then is based off that
         fqdn = cfg['fqdn']
-        hostname = get_cfg_option_str(cfg, "hostname", fqdn.split('.')[0])
+        hostname = get_cfg_option_str(cfg, "hostname", fqdn)
     else:
         if "hostname" in cfg and cfg['hostname'].find('.') > 0:
             # user specified hostname, and it had '.' in it
             # be nice to them.  set fqdn and hostname from that
             fqdn = cfg['hostname']
-            hostname = cfg['hostname'][:fqdn.find('.')]
+            hostname = fqdn
         else:
             # no fqdn set, get fqdn from cloud.
             # get hostname from cfg if available otherwise cloud
@@ -647,7 +365,7 @@ def get_hostname_fqdn(cfg, cloud):
                 hostname = cfg['hostname']
             else:
                 hostname = cloud.get_hostname()
-    return(hostname, fqdn)
+    return (hostname, fqdn)
 
 
 def get_fqdn_from_hosts(hostname, filename="/etc/hosts"):
@@ -690,98 +408,13 @@ def is_resolvable(name):
 
 def is_resolvable_url(url):
     """ determine if this url is resolvable (existing or ip) """
-    return(is_resolvable(urlparse.urlparse(url).hostname))
+    return is_resolvable(urlparse.urlparse(url).hostname)
 
 
 def close_stdin():
     """
     reopen stdin as /dev/null so even subprocesses or other os level things get
     /dev/null as input.
-
-    if _CLOUD_INIT_SAVE_STDIN is set in environment to a non empty or '0' value
-    then input will not be closed (only useful potentially for debugging).
     """
-    if os.environ.get("_CLOUD_INIT_SAVE_STDIN") in ("", "0", False):
-        return
     with open(os.devnull) as fp:
         os.dup2(fp.fileno(), sys.stdin.fileno())
-
-
-def find_devs_with(criteria):
-    """
-    find devices matching given criteria (via blkid)
-    criteria can be *one* of:
-      TYPE=<filesystem>
-      LABEL=<label>
-      UUID=<uuid>
-    """
-    try:
-        (out, _err) = subp(['blkid', '-t%s' % criteria, '-odevice'])
-    except subprocess.CalledProcessError:
-        return([])
-    return(str(out).splitlines())
-
-
-class MountFailedError(Exception):
-    pass
-
-
-def mount_callback_umount(device, callback, data=None):
-    """
-    mount the device, call method 'callback' passing the directory
-    in which it was mounted, then unmount.  Return whatever 'callback'
-    returned.  If data != None, also pass data to callback.
-    """
-
-    def _cleanup(umount, tmpd):
-        if umount:
-            try:
-                subp(["umount", '-l', umount])
-            except subprocess.CalledProcessError:
-                raise
-        if tmpd:
-            os.rmdir(tmpd)
-
-    # go through mounts to see if it was already mounted
-    fp = open("/proc/mounts")
-    mounts = fp.readlines()
-    fp.close()
-
-    tmpd = None
-
-    mounted = {}
-    for mpline in mounts:
-        (dev, mp, fstype, _opts, _freq, _passno) = mpline.split()
-        mp = mp.replace("\\040", " ")
-        mounted[dev] = (dev, fstype, mp, False)
-
-    umount = False
-    if device in mounted:
-        mountpoint = "%s/" % mounted[device][2]
-    else:
-        tmpd = tempfile.mkdtemp()
-
-        mountcmd = ["mount", "-o", "ro", device, tmpd]
-
-        try:
-            (_out, _err) = subp(mountcmd)
-            umount = tmpd
-        except subprocess.CalledProcessError as exc:
-            _cleanup(umount, tmpd)
-            raise MountFailedError(exc.output[1])
-
-        mountpoint = "%s/" % tmpd
-
-    try:
-        if data == None:
-            ret = callback(mountpoint)
-        else:
-            ret = callback(mountpoint, data)
-
-    except Exception as exc:
-        _cleanup(umount, tmpd)
-        raise exc
-
-    _cleanup(umount, tmpd)
-
-    return(ret)

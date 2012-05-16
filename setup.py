@@ -19,7 +19,19 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 from glob import glob
+
 from setuptools import (setup, find_packages)
+
+FINAL = False
+VERSION = ['2012', '5', '16']
+
+
+def version_string():
+    vstr = '.'.join(VERSION)
+    if FINAL:
+        return vstr
+    else:
+        return "%s-dev" % (vstr)
 
 
 def parse_requires(fn='requires.txt'):
@@ -28,29 +40,33 @@ def parse_requires(fn='requires.txt'):
         lines = fh.read().splitlines()
     for line in lines:
         line = line.strip()
-        if not line or line[0] == '#':
+        if not line or line.startswith('#'):
             continue
         else:
             requires.append(line)
     return requires
 
 
-def get_version(fn='version.txt'):
-    with open(fn, 'r') as fh:
-        return fh.read().strip()
+def get_scripts():
+    scripts = ['bin/condenser']
+    return scripts
+
+
+def get_data_files():
+    data_files = []
+    data_files.append(('/etc/condense', glob('config/*.cfg')))
+    data_files.append(('/etc/condense/templates', glob('templates/*')))
+    data_files.append(('/etc/init', glob('upstart/*.conf')))
+    return data_files
 
 
 setup(name='condense',
-      version=get_version(),
-      description='Condensed EC2 initialization magic',
+      version=version_string(),
+      description='Condensed EC2 initialization hot sauce magic!',
       author='Yahoo!',
       author_email='openstack-dev@yahoo-inc.com',
       packages=find_packages(),
-      scripts=['condenser.py'],
+      scripts=get_scripts(),
       install_requires=parse_requires(),
-      data_files=[('/etc/condense', glob('config/*.cfg')),
-                  ('/etc/condense/templates', glob('templates/*')),
-                  ('/usr/share/condense-init', []),
-                  ('/usr/libexec/condense-init', []),
-                  ],
+      data_files=get_data_files(),
       )

@@ -20,15 +20,16 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import cPickle
 import errno
 import glob
 import os
-from time import time
 import subprocess
 import sys
 import traceback
 
+from time import time
+
+import cPickle
 import StringIO
 
 import yaml
@@ -37,39 +38,77 @@ from condense import data_source
 from condense import exceptions as excp
 from condense import log as logging
 from condense import util
+from condense import importer
+from condense import user_data as ud
 
 from condense.settings import (system_config, cfg_builtin, cur_instance_link,
                                per_always, varlibdir, pathmap, per_instance,
-                               boot_finished, log_file, per_once)
+                               boot_finished, per_once, cc_mod_tpl)
 
 log = logging.getLogger()
 parsed_cfgs = {}
 
 
 class Init:
-    cfg = None
-    part_handlers = {}
-    old_conffile = '/etc/ec2-init/ec2-config.cfg'
-    ds_deps = [data_source.DEP_FILESYSTEM, data_source.DEP_NETWORK]
-    datasource = None
-    cloud_config_str = ''
-    datasource_name = ''
 
     def __init__(self, ds_deps=None, sysconfig=system_config):
         if ds_deps != None:
             self.ds_deps = ds_deps
+        else:
+            self.ds_deps = [data_source.DEP_FILESYSTEM, data_source.DEP_NETWORK]
         self.sysconfig = sysconfig
+        self.cfg = None
         self.cfg = self.read_cfg()
+        self.builtin_handlers = [
+            ['text/cloud-config', self.handle_cloud_config, per_always],
+        ]
+        self.datasource = None
+        self.cloud_config_str = ''
+        self.datasource_name = ''
+
+    def handle_cloud_config(self, ctype, filename, payload):
+
+        if ctype == "__begin__":
+            self.cloud_config_str = ""
+            return
+
+        if ctype == "__end__":
+            cloud_config = self.get_ipath("cloud_config")
+            util.write_file(cloud_config, self.cloud_config_str, 0600)
+            return
+
+        self.cloud_config_str += "\n#%s\n%s" % (filename, payload)
+
+    def consume_userdata(self, frequency=per_instance):
+
+        part_handlers = {}
+        for (btype, bhand, bfreq) in self.builtin_handlers:
+            i_handler = InternalPartHandler(bhand, [btype], bfreq)
+            handler_register(i_handler, part_handlers, frequency)
+
+        def partwalker_callback(ctype, filename, payload):
+            handlers = part_handlers.get(ctype, [])
+            for handler in handlers:
+                handler_handle_part(handler, ctype, filename, payload, frequency)
+
+        ud.walk_userdata(self.get_userdata(), partwalker_callback)
+
+        # give callbacks opportunity to finalize
+        called = []
+        for (_mtype, mods) in part_handlers.items():
+            for mod in mods:
+                if mod in called:
+                    continue
+                handler_call_end(mod, frequency)
+                called.append(mod)
 
     def read_cfg(self):
         if self.cfg:
             return self.cfg
-
         try:
             conf = util.get_base_cfg(self.sysconfig, cfg_builtin, parsed_cfgs)
         except Exception:
             conf = get_builtin_cfg()
-
         return conf
 
     def restore_from_cache(self):
@@ -93,25 +132,22 @@ class Init:
             if e.errno != errno.EEXIST:
                 return False
 
-        try:
-            with open(cache, "wb") as f:
-                cPickle.dump(self.datasource, f)
+        with open(cache, "wb") as f:
+            cPickle.dump(self.datasource, f)
+            f.flush()
             os.chmod(cache, 0400)
-        except Exception:
-            raise
 
     def get_data_source(self):
         if self.datasource is not None:
             return True
 
         if self.restore_from_cache():
-            log.debug("restored from cache type %s" % self.datasource)
+            log.debug("Restored from cached datasource: %s" % self.datasource)
             return True
 
         cfglist = self.cfg['datasource_list']
         dslist = list_sources(cfglist, self.ds_deps)
         dsnames = [f.__name__ for f in dslist]
-
         log.debug("Searching for data source in %s" % dsnames)
         for cls in dslist:
             ds = cls.__name__
@@ -122,10 +158,11 @@ class Init:
                     self.datasource = s
                     self.datasource_name = ds
                     return True
-            except Exception as e:
-                log.warn("Get data of %s raised %s" % (ds, e))
+            except Exception:
+                log.warn("Get data of %s raised!", ds)
                 util.logexc(log)
-        msg = "Did not find data source. Searched classes: %s" % dsnames
+
+        msg = "Did not find data source. Searched classes: %s" % (dsnames)
         log.debug(msg)
         raise excp.DataSourceNotFoundException(msg)
 
@@ -196,22 +233,28 @@ class Init:
         if os.path.exists(semfile) and freq != per_always:
             return False
 
-        # TODO: race condition??
+        # TODO: race condition?? - probably should use real lock sometime
         try:
             with open(semfile, "w") as f:
-                f.write("%s\n" % str(time()))
-        except Exception:
+                contents = []
+                contents.append("%s" % str(time()))
+                contents.append("%s" % (os.getpid()))
+                contents.append("%s" % (os.getpid()))
+                f.write("\n".join(contents))
+            log.debug("Acquired file sempahore: %s", semfile)
+        except IOError:
             return False
+
         return True
 
     def sem_clear(self, name, freq):
         semfile = self.sem_getpath(name, freq)
         try:
             os.unlink(semfile)
+            log.debug("Clearing file sempahore: %s", semfile)
         except OSError as e:
             if e.errno != errno.ENOENT:
                 return False
-
         return True
 
     # acquire lock on 'name' for given 'freq'
@@ -292,7 +335,11 @@ class Config():
         return util.mergedict(cfg, self.cloud.cfg)
 
     def handle(self, name, args, freq=None):
-        mod = __import__("cc_" + name.replace("-", "_"), globals())
+        real_name = name.replace("-", "_")
+        mod_name = cc_mod_tpl % (real_name)
+        log.debug("Importing handler module: %s", mod_name)
+
+        mod = importer.import_module(mod_name)
         def_freq = getattr(mod, "frequency", per_instance)
         handler = getattr(mod, "handle")
 
@@ -301,7 +348,7 @@ class Config():
 
         self.cloud.sem_and_run("config-" + name, freq, handler,
             [name, self.cfg, self.cloud, log, args])
-    
+
 
 def initfs():
     subds = ['scripts/per-instance', 'scripts/per-once', 'scripts/per-boot',
@@ -310,19 +357,6 @@ def initfs():
     for subd in subds:
         dlist.append("%s/%s" % (varlibdir, subd))
     util.ensure_dirs(dlist)
-
-    cfg = util.get_base_cfg(system_config, cfg_builtin, parsed_cfgs)
-    perms = util.get_cfg_option_str(cfg, 'syslog_fix_perms', None)
-    if log_file:
-        fp = open(log_file, "ab")
-        fp.close()
-    if log_file and perms:
-        (u, g) = perms.split(':', 1)
-        if u == "-1" or u == "None":
-            u = None
-        if g == "-1" or g == "None":
-            g = None
-        util.chownbyname(log_file, u, g)
 
 
 def purge_cache(rmcur=True):
@@ -364,3 +398,44 @@ def get_builtin_cfg():
 
 def list_sources(cfg_list, depends):
     return data_source.list_sources(cfg_list, depends)
+
+
+def handler_register(mod, part_handlers,  frequency):
+    for mtype in mod.list_types():
+        if mtype not in part_handlers:
+            part_handlers[mtype] = []
+        part_handlers[mtype].append(mod)
+    handler_call_begin(mod, frequency)
+
+
+def handler_call_begin(mod, frequency):
+    handler_handle_part(mod, "__begin__", None, None, frequency)
+
+
+def handler_call_end(mod, frequency):
+    handler_handle_part(mod, "__end__", None, None, frequency)
+
+
+def handler_handle_part(mod, ctype, filename, payload, frequency):
+    modfreq = getattr(mod, "frequency", per_instance)
+    if not (modfreq == per_always or
+            (frequency == per_instance and modfreq == per_instance)):
+        return
+    try:
+        mod.handle_part(ctype, filename, payload)
+    except:
+        util.logexc(log)
+
+
+class InternalPartHandler:
+
+    def __init__(self, handler, mtypes, frequency):
+        self.handler = handler
+        self.mtypes = mtypes
+        self.frequency = frequency
+
+    def list_types(self):
+        return self.mtypes
+
+    def handle_part(self, ctype, filename, payload):
+        return self.handler(ctype, filename, payload)

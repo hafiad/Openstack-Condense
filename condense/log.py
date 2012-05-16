@@ -56,13 +56,25 @@ WatchedFileHandler = WatchedFileHandler
 FileHandler = logging.FileHandler
 SysLogHandler = SysLogHandler
 
+# Fixes the:
+# No handlers could be found for logger XXX annoying output...
+try:
+    from logging import NullHandler
+except ImportError:
+    class NullHandler(logging.Handler):
+        def emit(self, record):
+            pass
 
-def setupLogging(log_level, format='%(levelname)s: @%(name)s : %(message)s'):
+logger = logging.getLogger()
+logger.addHandler(NullHandler())
+
+
+def setupLogging(log_level, fn, format='%(levelname)s: @%(name)s : %(message)s'):
     root_logger = getLogger()
     console_logger = StreamHandler(sys.stdout)
     console_logger.setFormatter(Formatter(format))
     root_logger.addHandler(console_logger)
-    file_logger = FileHandler(settings.log_file)
+    file_logger = FileHandler(fn)
     file_logger.setFormatter(Formatter(format))
     root_logger.addHandler(file_logger)
     root_logger.setLevel(log_level)

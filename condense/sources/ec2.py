@@ -40,23 +40,16 @@ class DataSourceEc2(data_source.DataSource):
         return "DataSourceEc2"
 
     def get_data(self):
-        seedret = {}
-        if util.read_optional_seed(seedret, base=self.seeddir + "/"):
-            self.userdata_raw = seedret['user-data']
-            self.metadata = seedret['meta-data']
-            log.debug("Using seeded ec2 data in %s" % self.seeddir)
-            return True
         try:
             if not self.wait_for_metadata_service():
                 return False
             start = time.time()
-            log.info("Calling into metadata service using boto")
-            self.userdata_raw = boto_utils.get_instance_userdata(self.api_ver,
-                None, self.metadata_address)
-            self.metadata = boto_utils.get_instance_metadata(self.api_ver,
-                self.metadata_address)
-            log.debug("Crawl of metadata service took %ds" % (time.time() -
-                                                              start))
+            log.info("Calling into metadata service using boto at addr %s", self.metadata_address)
+            self.userdata_raw = boto_utils.get_instance_userdata(self.api_ver,  None, self.metadata_address)
+            self.metadata = boto_utils.get_instance_metadata(self.api_ver, self.metadata_address)
+            log.debug("Crawl of metadata service took %s seconds" % (time.time() - start))
+            log.debug("Received raw userdata: %s", self.userdata_raw)
+            log.debug("Received metadata: %s", self.metadata)
             return True
         except Exception:
             return False
@@ -227,9 +220,7 @@ def wait_for_metadata_service(urls, max_wait=None, timeout=None,
         return((max_wait <= 0 or max_wait == None) or
                (time.time() - starttime > max_wait))
 
-    log.info(("Waiting for meta service at urls %s, "
-            "with a maximum wait time per url of %s seconds, "
-            "with a per attempt timeout of %s seconds"), urls, max_wait, timeout)
+    log.info("Waiting for meta service at urls %s [maxwait=%s, timeout=%s]", urls, max_wait, timeout)
 
     loop_n = 0
     while True:

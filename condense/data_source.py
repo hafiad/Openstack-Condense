@@ -18,14 +18,17 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-DEP_FILESYSTEM = "FILESYSTEM"
-DEP_NETWORK = "NETWORK"
-
-
-from condense import util
+import condense.importer as importer
+import condense.log as logging
+import condense.settings as settings
+import condense.user_data as ud
+import condense.util as util
 
 import socket
+
+log = logging.getLogger()
+DEP_FILESYSTEM = "FILESYSTEM"
+DEP_NETWORK = "NETWORK"
 
 
 class DataSource:
@@ -52,7 +55,8 @@ class DataSource:
                           ("datasource", self.cfgname), self.ds_cfg)
 
     def get_userdata(self):
-        self.userdata = self.get_userdata_raw()
+        if self.userdata == None:
+            self.userdata = ud.preprocess_userdata(self.get_userdata_raw() or '')
         return self.userdata
 
     def get_userdata_raw(self):
@@ -108,13 +112,8 @@ class DataSource:
                 toks = [defhost, defdomain]
 
         else:
-            # if there is an ipv4 address in 'local-hostname', then
-            # make up a hostname (LP: #475354) in format ip-xx.xx.xx.xx
             lhost = self.metadata['local-hostname']
-            if is_ipv4(lhost):
-                toks = "ip-%s" % lhost.replace(".", "-")
-            else:
-                toks = lhost.split(".")
+            toks = lhost.split(".")
 
         if len(toks) > 1:
             hostname = toks[0]
@@ -133,22 +132,14 @@ class DataSource:
 # and calling their "get_datasource_list".
 # return an ordered list of classes that match
 def list_sources(cfg_list, depends):
-    pkglist = []
     retlist = []
     for ds_coll in cfg_list:
-        for pkg in pkglist:
-            if pkg:
-                pkg = "%s." % pkg
-            try:
-                mod_name = "%sDataSource%s" % (pkg, ds_coll)
-                mod = __import__(mod_name)
-                if pkg:
-                    mod = getattr(mod, "DataSource%s" % ds_coll)
-                lister = getattr(mod, "get_datasource_list")
-                retlist.extend(lister(depends))
-                break
-            except:
-                raise
+        mod_name = settings.src_mod_tpl % (ds_coll)
+        log.debug("Importing source module: %s", mod_name)
+        mod = importer.import_module(mod_name)
+        lister = getattr(mod, "get_datasource_list", None)
+        if lister:
+            retlist.extend(lister(depends))
     return retlist
 
 
@@ -167,17 +158,3 @@ def list_from_depends(depends, dslist):
         if depset == set(deps):
             retlist.append(cls)
     return retlist
-
-
-def is_ipv4(instr):
-    """ determine if input string is a ipv4 address. return boolean"""
-    toks = instr.split('.')
-    if len(toks) != 4:
-        return False
-
-    try:
-        toks = [x for x in toks if (int(x) < 256 and int(x) > 0)]
-    except Exception:
-        return False
-
-    return (len(toks) == 4)

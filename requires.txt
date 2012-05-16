@@ -1,3 +1,9 @@
-cheetah
+# Condense required python packages.
+
+# Needed for actually usage
+Cheetah
+PyYAML
 boto
-pyyaml
+
+# For testing (mock server)
+IPy

@@ -4,8 +4,7 @@ set -u
 # set -x
 
 function find_src {
-  files=`find condense -type f | grep "py\$"`
-  files+=" condenser.py"
+  files=`find condense bin -type f | grep "py\$"`
   echo $files
 }
 

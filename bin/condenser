@@ -28,11 +28,12 @@ import traceback
 from optparse import OptionParser
 
 from condense.exceptions import DataSourceNotFoundException
-from condense import (get_base_cfg, get_builtin_cfg, initfs, 
-                      get_cpath,  get_ipath_cur,
-                      Init, Config)
+from condense import (get_base_cfg, get_builtin_cfg, initfs,
+                      get_cpath,  get_ipath_cur, per_always)
+from condense import (Init, Config)
 from condense.handlers import (read_cc_modules, run_cc_modules)
 from condense.data_source import (DEP_FILESYSTEM, DEP_NETWORK)
+from condense.settings import (config_ready_emit, log_file_tpl)
 
 from condense import log
 from condense import logging
@@ -45,47 +46,13 @@ def warn(wstr):
     sys.stderr.flush()
 
 
-def fatality(msg='', rc=0, do_die=True):
+def fatality(msg='', rc=0):
     if msg:
         if rc != 0:
             log.warn(msg)
         else:
             log.info(msg)
-    if do_die:
-        sys.exit(rc)
-
-
-VALID_OPTIONS = ['start', 'final', 'config']
-
-
-def extract_opts():
-    parser = OptionParser()
-    parser.add_option("-a", "--action", dest="action", action="store",
-                  help="action to take, one of (%s)" % (", ".join(VALID_OPTIONS)),
-                  metavar="ACTION", default="")
-    parser.add_option("-f", "--file", dest="test_file", action="store",
-                  help="file to use instead of fetched config (for testing)", metavar="FILE")
-    parser.add_option("-v", "--verbose",
-        action="append_const",
-        const=1,
-        dest="verbosity",
-        default=[1],
-        help="increase the verbosity level")
-    (options, args) = parser.parse_args()
-    out = dict()
-    out['action'] = options.action or ''
-    out['test_file'] = options.test_file
-    out['verbosity'] = len(options.verbosity)
-    out['extra'] = args
-    return out
-
-
-def verify_opts(opts):
-    action = opts['action']
-    action = action.lower().strip()
-    if not action in VALID_OPTIONS:
-        raise RuntimeError("Action must be one of (%s)" % (", ".join(VALID_OPTIONS)))
-    return opts
+    return rc
 
 
 def get_now():
@@ -97,7 +64,7 @@ def form_stage_name(part):
     return "cloud_%s_modules" % (part)
 
 
-def main_start(app_name, uptime, test_file, **kwargs):
+def main_start(app_name, test_file, **kwargs):
     cfg_path = test_file
     deps = (DEP_FILESYSTEM, DEP_NETWORK)
     try:
@@ -107,7 +74,7 @@ def main_start(app_name, uptime, test_file, **kwargs):
         log.exception("Failed to get base config. Falling back to builtin.")
         cfg = get_builtin_cfg()
 
-    log.debug("Using config %s", cfg)
+    log.info("Using base config %s", cfg)
     try:
         initfs()
     except Exception as e:
@@ -116,25 +83,22 @@ def main_start(app_name, uptime, test_file, **kwargs):
     stop_files = [get_ipath_cur("obj_pkl")]
     for fn in stop_files:
         try:
-            with open(fn, "r") as fp:
+            with open(fn, "r"):
                 pass
         except:
             continue
-        fatality("No need for start to run due to existence of %r" % (fn))
-
-    log.info("%s starting: %s.", app_name, get_now())
-    log.info("System has been up %s seconds.", uptime)
+        return fatality("No need for start to run due to existence of: %r" % (fn))
 
     init_deps = deps
     log.info("Dependencies are: %s", init_deps)
     log.info("Network info is: \n%s", netinfo.debug_info())
 
     cloud = Init(ds_deps=init_deps)
-    log.info("Full config is %s", cloud.cfg)
+    log.info("Init config is %s", cloud.cfg)
     try:
         cloud.get_data_source()
     except DataSourceNotFoundException as e:
-        fatality("No data found: %s" % e, rc=1)
+        return fatality("No data found: %s" % e, rc=1)
 
     # set this as the current instance
     iid = cloud.set_cur_instance()
@@ -142,50 +106,65 @@ def main_start(app_name, uptime, test_file, **kwargs):
 
     # store the metadata
     cloud.update_cache()
-    log.info("Found data source: %r" % cloud.datasource)
-    
+    log.info("Applying data source: %r" % cloud.datasource)
+
+    # parse the user data (ec2-run-userdata.py)
+    try:
+        cloud.consume_userdata(per_always)
+    except Exception as e:
+        log.exception("Consuming user data failed!")
+        raise
+
     # run the initial modules
     cfg_path = get_ipath_cur("cloud_config")
     cc = Config(cfg_path, cloud)
+    log.info("Using real config: %s", cc.cfg)
+
     module_list = read_cc_modules(cc.cfg, form_stage_name('init'))
     failures = run_cc_modules(cc, module_list, log)
     fail_count = len(failures)
     if fail_count:
-        fatality("Errors running modules: [%s]" % (failures), rc=len(failures))
+        return fatality("Errors running modules: [%s]" % (failures), rc=len(failures))
 
     # send the start next stage event
-    cc_ready = ['initctl', 'emit', 'condense-config']
-    log.debug("Emitting command %s", " ".join(cc_ready))
-    subprocess.Popen(cc_ready).communicate()
+    emit_cmd = list(config_ready_emit)
+    emit_cmd.append("%s=%s" % ('CLOUD_CFG', cfg_path))
+    util.subp(emit_cmd)
+
+    return 0
 
 
-def main_continue(action, app_name, uptime, **kwargs):
-    cfg_path = get_ipath_cur("cloud_config")
+def main_continue(action, app_name, **kwargs):
+
     cloud = Init(ds_deps=[])  # ds_deps=[], get only cached
+    log.info("Init config is %s", cloud.cfg)
+
     try:
         cloud.get_data_source()
     except DataSourceNotFoundException as ex:
-        # there was no datasource found, theres nothing to do
-        fatality("No datasource found: %s" % ex)
+        return fatality("No datasource found: %s" % ex)
 
-    log.info("Full config is %s", cloud.cfg)
-    log.info("Found data source: %r" % cloud.datasource)
+    log.info("Applying data source: %r" % cloud.datasource)
+
+    cfg_path = get_ipath_cur("cloud_config")
     cc = Config(cfg_path, cloud)
+    log.info("Using real config: %s", cc.cfg)
 
-    # run the stages modules
-    log.info("%s starting stage %s: %s", app_name, action, get_now())
-    log.info("System has been up %s seconds.", uptime)
     module_list = read_cc_modules(cc.cfg, form_stage_name(action))
     failures = run_cc_modules(cc, module_list, log)
+
     if len(failures):
-        fatality("Errors running modules [%s]: %s" % (action, failures), rc=len(failures))
+        return fatality("Errors running modules [%s]: %s" % (action, failures), rc=len(failures))
+
+    return 0
 
 
 def setup_logging(opts):
+    out_fn = log_file_tpl % (opts['action'])
     if opts['verbosity'] > 1:
-        logging.setupLogging(logging.DEBUG)
+        logging.setupLogging(logging.DEBUG, fn=out_fn)
     else:
-        logging.setupLogging(logging.INFO)
+        logging.setupLogging(logging.INFO, fn=out_fn)
 
 
 ACTION_FUNCS = {
@@ -193,42 +172,85 @@ ACTION_FUNCS = {
     'final': main_continue,
     'config': main_continue,
 }
+VALID_OPTIONS = sorted(ACTION_FUNCS.keys())
+
+
+def extract_opts():
+    parser = OptionParser()
+    parser.add_option("-f", "--file", dest="test_file", action="store",
+                  help="test file to use for base configuration",
+                  metavar="FILE")
+    parser.add_option("-a", "--action", dest="action", action="store",
+                  help="action to take, one of (%s)" % (", ".join(VALID_OPTIONS)),
+                  metavar="ACTION", default="")
+    parser.add_option("-v", "--verbose",
+        action="append_const",
+        const=1,
+        dest="verbosity",
+        default=[1],
+        help="increase the verbosity level")
+    (options, args) = parser.parse_args()
+    out = dict()
+    action = options.action or ''
+    out['action'] = action.lower().strip()
+    out['test_file'] = options.test_file
+    out['verbosity'] = len(options.verbosity)
+    out['extra'] = args
+    return out
+
+
+def verify_opts(opts):
+    action = opts['action']
+    if not action in VALID_OPTIONS:
+        return False
+    fn = opts['test_file']
+    if fn:
+        if not os.path.isfile(fn):
+            return False
+    return True
 
 
 def main():
 
     me = os.path.basename(sys.argv[0])
-    opts = verify_opts(extract_opts())
+    opts = extract_opts()
+
+    if not verify_opts(opts):
+        print("Perhaps you should try '%s --help'" % (me))
+        return 1
+
     if not os.geteuid() == 0:
-        fatality('%s must be run as root!' % (me), rc=1)
+        print("'%s' must be run as root!" % (me))
+        return 1
 
-    print("Extracted cli opts %s" % (opts))
     util.close_stdin()
-
-    uptime = '??'
+    uptime = 'na'
     try:
-        with open("/proc/uptime", 'r') as uptimef:
-            uptime = uptimef.read().split(" ")[0]
+        with open("/proc/uptime", 'r') as fh:
+            contents = fh.read().strip()
+        data = contents.split(" ")
+        if data and data[0]:
+            uptime_f = data[0].strip()
+            if uptime_f:
+                uptime = uptime_f
     except IOError:
         warn("Unable to open /proc/uptime")
-        uptime = "na"
 
     setup_logging(opts)
     opts['uptime'] = uptime
     opts['app_name'] = me
-    start_time = time.time()
     log.info("Starting action %r" % (opts['action']))
+    log.info("System has been up %s seconds.", uptime)
     func = ACTION_FUNCS[opts['action']]
-    func(**opts)
-    end_time = time.time()
-    log.info("Took %s seconds to finish action %r" % (end_time - start_time, opts['action']))
+    rc = func(**opts)
+    log.info("Finished with return code: %s", rc)
+    return rc
 
 
 if __name__ == '__main__':
     try:
-        main()
-        fatality()
+        sys.exit(main())
     except Exception as e:
-        fatality("Broke due to: %s" % e, rc=1, do_die=False)
+        rc = fatality("Broke due to: %s" % e, rc=1)
         traceback.print_exc(file=sys.stderr)
-        fatality(rc=1)
+        sys.exit(rc)

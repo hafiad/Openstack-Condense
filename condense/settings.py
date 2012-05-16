@@ -1,7 +1,7 @@
 import os
 
 # Where we write logging to (besides stdout)
-log_file = '/var/log/condense.log'
+log_file_tpl = '/var/log/condense.%s.log'
 
 # Root location of condense output
 varlibdir = '/var/lib/condense'
@@ -35,3 +35,13 @@ pathmap = {
 per_instance = "once-per-instance"
 per_always = "always"
 per_once = "once"
+
+# Lookup modules names
+src_mod_tpl = 'condense.sources.%s'
+cc_mod_tpl = 'condense.handlers.%s'
+
+# Where any templates are
+template_tpl = '/etc/condense/templates/%s.tmpl'
+
+# Initctl events fired
+config_ready_emit = ['initctl', 'emit', 'condense-config']
