@@ -164,9 +164,9 @@ def main_continue(action, app_name, uptime, **kwargs):
     cloud = Init(ds_deps=[])  # ds_deps=[], get only cached
     try:
         cloud.get_data_source()
-    except DataSourceNotFoundException as e:
+    except DataSourceNotFoundException as ex:
         # there was no datasource found, theres nothing to do
-        fatality("No datasource found: %s" % e)
+        fatality("No datasource found: %s" % ex)
 
     log.info("Full config is %s", cloud.cfg)
     log.info("Found data source: %r" % cloud.datasource)

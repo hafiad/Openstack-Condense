@@ -24,6 +24,7 @@ import cPickle
 import errno
 import glob
 import os
+from time import time
 import subprocess
 import sys
 import traceback
@@ -184,7 +185,6 @@ class Init:
         return False
 
     def sem_acquire(self, name, freq):
-        from time import time
         semfile = self.sem_getpath(name, freq)
 
         try:

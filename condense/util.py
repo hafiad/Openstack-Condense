@@ -21,7 +21,6 @@
 import errno
 import logging
 import os
-import os.path
 import platform
 import pprint
 import re
