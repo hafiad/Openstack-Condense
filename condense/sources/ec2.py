@@ -21,7 +21,6 @@
 from condense import data_source
 from condense import log
 from condense import util
-from condense.settings import seeddir as base_seeddir
 
 import os
 import socket
@@ -33,7 +32,6 @@ import boto.utils as boto_utils
 
 class DataSourceEc2(data_source.DataSource):
     api_ver = '2009-04-04'
-    seeddir = base_seeddir + '/ec2'
     metadata_address = "http://169.254.169.254"
 
     def __str__(self):
