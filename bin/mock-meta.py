@@ -14,8 +14,6 @@ from BaseHTTPServer import (HTTPServer, BaseHTTPRequestHandler)
 
 log = logging.getLogger('meta-server')
 
-from IPy import IP
-
 # Constants
 EC2_VERSIONS = [
     '1.0',
@@ -68,7 +66,7 @@ PLACEMENT_CAPABILITIES = {
     'availability-zone': 'us-east',
 }
 
-INSTANCE_IP = IP('10.0.0.1')
+INSTANCE_IP = ('10.0.0.1')
 INSTANCE_INDEX = 0
 ID_CHARS = [c for c in (string.ascii_uppercase + string.digits)]
 
