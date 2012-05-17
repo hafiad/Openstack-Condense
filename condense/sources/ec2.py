@@ -44,7 +44,7 @@ class DataSourceEc2(data_source.DataSource):
             if not self.wait_for_metadata_service():
                 return False
             start = time.time()
-            log.info("Calling into metadata service using boto at addr %s", self.metadata_address)
+            log.info("Calling into metadata service using boto at: %s", self.metadata_address)
             self.userdata_raw = boto_utils.get_instance_userdata(self.api_ver,  None, self.metadata_address)
             self.metadata = boto_utils.get_instance_metadata(self.api_ver, self.metadata_address)
             log.debug("Crawl of metadata service took %s seconds" % (time.time() - start))
