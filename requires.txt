@@ -4,6 +4,7 @@
 Cheetah
 PyYAML
 boto
+prettytable
 
 # For testing (mock server)
 IPy

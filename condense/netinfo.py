@@ -21,6 +21,8 @@
 
 from condense import util
 
+from prettytable import PrettyTable
+
 
 def netdev_info(empty=""):
     fields = ("hwaddr", "addr", "bcast", "mask")
@@ -82,33 +84,39 @@ def route_info():
     return routes
 
 
-def getgateway():
-    for r in route_info():
-        if r[3].find("G") >= 0:
-            return("%s[%s]" % (r[1], r[7]))
-    return None
-
-
-def debug_info(pre=">>> "):
+def net_info():
     lines = []
     try:
         netdev = netdev_info(empty=".")
     except Exception:
         lines.append("netdev_info failed!")
         netdev = {}
-    for (dev, d) in netdev.iteritems():
-        lines.append("%s%-6s: %i %-15s %-15s %s" %
-            (pre, dev, d["up"], d["addr"], d["mask"], d["hwaddr"]))
+    if netdev:
+        fields = ['Device', 'Up', 'Address', 'Mask', 'Hw-Address']
+        tbl = PrettyTable(fields)
+        tbl.set_field_align('Device', 'l')
+        for (dev, d) in netdev.iteritems():
+            tbl.add_row([dev, d["up"], d["addr"], d["mask"], d["hwaddr"]])
+        lines.append("Interfaces:")
+        lines.append(tbl.get_string())
     try:
         routes = route_info()
     except Exception:
         lines.append("route_info failed")
         routes = []
-    n = 0
-    for r in routes:
-        lines.append("%sroute-%d: %-15s %-15s %-15s %-6s %s" %
-            (pre, n, r[0], r[1], r[2], r[7], r[3]))
-        n = n + 1
+
+    if routes:
+        n = 0
+        fields = ['Route', 'Destination', 'Gateway', 'Genmask', 'Interface', 'Flags']
+        tbl = PrettyTable(fields)
+        tbl.set_field_align('Route', 'l')
+        for r in routes:
+            route_id = str(n)
+            tbl.add_row([route_id, r[0], r[1], r[2], r[7], r[3]])
+            n = n + 1
+        lines.append("Routes:")
+        lines.append(tbl.get_string())
+
     return '\n'.join(lines)
 
 
