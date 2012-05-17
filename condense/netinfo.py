@@ -118,7 +118,3 @@ def net_info():
         lines.append(tbl.get_string())
 
     return '\n'.join(lines)
-
-
-if __name__ == '__main__':
-    print debug_info()
