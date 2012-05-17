@@ -28,9 +28,12 @@ frequency = per_always
 
 def handle(_name, cfg, _cloud, log, args):
     if len(args) != 0:
-        msg_in = str(args[0])
+        msg_in = args[0]
     else:
-        msg_in = util.get_cfg_option_str(cfg, "final_message", "Finished at $TIMESTAMP. Up $UPTIME seconds")
+        msg_in = util.get_cfg_option_str(cfg, "final_message")
+
+    if not msg_in:
+        msg_in = "Finished at $TIMESTAMP. Up $UPTIME seconds"
 
     uptime = "na"
     try:

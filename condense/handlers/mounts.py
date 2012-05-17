@@ -18,12 +18,11 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-from condense import util
-
 import os
 import re
 from string import whitespace  # pylint: disable=W0402
+
+from condense import util
 
 
 def is_mdname(name):
