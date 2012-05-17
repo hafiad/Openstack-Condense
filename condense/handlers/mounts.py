@@ -162,7 +162,7 @@ def handle(_name, cfg, cloud, log, _args):
 
     if needswap:
         try:
-            util.subp(("swapon", "-a"))
+            util.subp(["swapon", "-a"])
         except:
             log.warn("Failed to enable swap")
 
@@ -172,9 +172,9 @@ def handle(_name, cfg, cloud, log, _args):
         try:
             os.makedirs(d)
         except:
-            log.warn("Failed to make '%s' config-mount\n", d)
+            log.warn("Failed to make '%s' config-mount", d)
 
     try:
-        util.subp(("mount", "-a"))
+        util.subp(["mount", "-a"])
     except:
         log.warn("'mount -a' failed")
