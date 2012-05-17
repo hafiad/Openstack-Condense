@@ -39,12 +39,26 @@ def handle(_name, cfg, cloud, log, args):
 
     url = ph_cfg['url']
     post_list = ph_cfg.get('post', 'all')
-    tries = ph_cfg.get('tries', 10)
+    tries = ph_cfg.get('tries')
+    timeout = ph_cfg.get('timeout')
+    try_wait = ph_cfg.get('try_wait')
     try:
         tries = int(tries)
     except:
-        log.warn("Tries is not an integer. using 10")
         tries = 10
+        log.warn("Tries is not an integer. using %s", tries)
+
+    try:
+        timeout = int(timeout)
+    except:
+        timeout = 5
+        log.warn("Timeout is not an integer. using %s", timeout)
+
+    try:
+        try_wait = int(try_wait)
+    except:
+        try_wait = 3
+        log.warn("Wait time between tries is not an integer. using %s", try_wait)
 
     if post_list == "all":
         post_list = ['pub_key_dsa', 'pub_key_rsa',
@@ -80,13 +94,14 @@ def handle(_name, cfg, cloud, log, args):
     last_e = None
     for i in range(0, tries):
         try:
-            util.readurl(url, submit_keys)
+            util.readurl(url, submit_keys, timeout=timeout)
             log.debug("Succeeded submit to %s on try %i" % (url, i + 1))
             return
         except Exception as e:
             log.warn("Failed to post to %s on try %i" % (url, i + 1))
             last_e = e
-        sleep(3)
+        log.info("Waiting %s seconds before the next attempt", try_wait)
+        sleep(try_wait)
 
     log.warn("Failed to post to %s in %i tries," % (url, tries))
     if last_e is not None:
