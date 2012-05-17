@@ -23,8 +23,6 @@ import sys
 from logging.handlers import SysLogHandler
 from logging.handlers import WatchedFileHandler
 
-from condense import settings
-
 # A list of things we want to replicate from logging levels
 CRITICAL = logging.CRITICAL
 FATAL = logging.FATAL
@@ -56,18 +54,6 @@ WatchedFileHandler = WatchedFileHandler
 FileHandler = logging.FileHandler
 SysLogHandler = SysLogHandler
 
-# Fixes the:
-# No handlers could be found for logger XXX annoying output...
-try:
-    from logging import NullHandler
-except ImportError:
-    class NullHandler(logging.Handler):
-        def emit(self, record):
-            pass
-
-logger = logging.getLogger()
-logger.addHandler(NullHandler())
-
 
 def setupLogging(log_level, fn, format='%(levelname)s: @%(name)s : %(message)s'):
     root_logger = getLogger()
@@ -82,3 +68,16 @@ def setupLogging(log_level, fn, format='%(levelname)s: @%(name)s : %(message)s')
 
 def getLogger(name='condense'):
     return logging.getLogger(name)
+
+
+# Fixes this annoyance...
+# No handlers could be found for logger XXX annoying output...
+try:
+    from logging import NullHandler
+except ImportError:
+    class NullHandler(logging.Handler):
+        def emit(self, record):
+            pass
+
+logger = getLogger()
+logger.addHandler(NullHandler())

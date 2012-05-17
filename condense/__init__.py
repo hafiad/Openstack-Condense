@@ -153,7 +153,7 @@ class Init:
             ds = cls.__name__
             try:
                 s = cls(sys_cfg=self.cfg)
-                log.debug("Checking if %r can provide us the config data", ds)
+                log.debug("Checking if %r can provide us the needed data.", ds)
                 if s.get_data():
                     self.datasource = s
                     self.datasource_name = ds

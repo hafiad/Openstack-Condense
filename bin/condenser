@@ -138,6 +138,7 @@ def main_continue(action, app_name, **kwargs):
 
     cloud = Init(ds_deps=[])  # ds_deps=[], get only cached
     log.info("Init config is %s", cloud.cfg)
+    log.info("Network info is: \n%s", netinfo.debug_info())
 
     try:
         cloud.get_data_source()
