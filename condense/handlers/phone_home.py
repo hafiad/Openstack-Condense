@@ -18,25 +18,14 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from condense import (util, per_instance)
-
 from time import sleep
 
+from condense import (util, per_instance)
 frequency = per_instance
-post_list_all = ['pub_key_dsa', 'pub_key_rsa', 'pub_key_ecdsa', 'instance_id',
-                 'hostname']
 
 
-# phone_home:
-#  url: http://my.foo.bar/$INSTANCE/
-#  post: all
-#  tries: 10
-#
-# phone_home:
-#  url: http://my.foo.bar/$INSTANCE_ID/
-#  post: [ pub_key_dsa, pub_key_rsa, pub_key_ecdsa, instance_id
-#
 def handle(_name, cfg, cloud, log, args):
+
     if len(args) != 0:
         ph_cfg = util.read_conf(args[0])
     else:
@@ -45,7 +34,7 @@ def handle(_name, cfg, cloud, log, args):
         ph_cfg = cfg['phone_home']
 
     if 'url' not in ph_cfg:
-        log.warn("no 'url' token in phone_home")
+        log.warn("No 'url' token in phone_home")
         return
 
     url = ph_cfg['url']
@@ -54,11 +43,13 @@ def handle(_name, cfg, cloud, log, args):
     try:
         tries = int(tries)
     except:
-        log.warn("tries is not an integer. using 10")
+        log.warn("Tries is not an integer. using 10")
         tries = 10
 
     if post_list == "all":
-        post_list = post_list_all
+        post_list = ['pub_key_dsa', 'pub_key_rsa',
+                     'pub_key_ecdsa', 'instance_id',
+                     'hostname']
 
     all_keys = {}
     all_keys['instance_id'] = cloud.get_instance_id()
@@ -72,11 +63,10 @@ def handle(_name, cfg, cloud, log, args):
 
     for n, path in pubkeys.iteritems():
         try:
-            fp = open(path, "rb")
-            all_keys[n] = fp.read()
-            fp.close()
+            with open(path, "rb") as fp:
+                all_keys[n] = fp.read()
         except:
-            log.warn("%s: failed to open in phone_home" % path)
+            log.warn("%s: failed to open" % path)
 
     submit_keys = {}
     for k in post_list:
@@ -84,24 +74,20 @@ def handle(_name, cfg, cloud, log, args):
             submit_keys[k] = all_keys[k]
         else:
             submit_keys[k] = "N/A"
-            log.warn("requested key %s from 'post' list not available")
+            log.warn("Requested key %s from 'post' list not available")
 
     url = util.render_string(url, {'INSTANCE_ID': all_keys['instance_id']})
-
-    null_exc = object()
-    last_e = null_exc
+    last_e = None
     for i in range(0, tries):
         try:
             util.readurl(url, submit_keys)
-            log.debug("succeeded submit to %s on try %i" % (url, i + 1))
+            log.debug("Succeeded submit to %s on try %i" % (url, i + 1))
             return
         except Exception as e:
-            log.debug("failed to post to %s on try %i" % (url, i + 1))
+            log.warn("Failed to post to %s on try %i" % (url, i + 1))
             last_e = e
         sleep(3)
 
-    log.warn("failed to post to %s in %i tries" % (url, tries))
-    if last_e is not null_exc:
-        raise(last_e)
-
-    return
+    log.warn("Failed to post to %s in %i tries," % (url, tries))
+    if last_e is not None:
+        raise last_e

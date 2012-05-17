@@ -21,5 +21,6 @@
 from condense import per_instance
 frequency = per_instance
 
+
 def handle(_name, _cfg, _cloud, _log, _args):
     print "hi"

@@ -62,7 +62,6 @@ def set_hostname_rh(hostname, log):
     return old_hostname
 
 
-
 def set_hostname_deb(hostname, log):
 
     def read_hostname(filename, default=None):

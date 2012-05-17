@@ -18,11 +18,11 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from condense import util
-
-import os.path
+import os
 import subprocess
 import traceback
+
+from condense import util
 
 
 def apply_locale(locale, cfgfile):
@@ -30,11 +30,12 @@ def apply_locale(locale, cfgfile):
         subprocess.Popen(['locale-gen', locale]).communicate()
     if os.path.exists('/usr/sbin/update-locale'):
         subprocess.Popen(['update-locale', locale]).communicate()
-
     util.render_to_file('default-locale', cfgfile, {'locale': locale})
 
 
 def handle(_name, cfg, cloud, log, args):
+
+    locale = None
     if len(args) != 0:
         locale = args[0]
     else:

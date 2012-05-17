@@ -1,0 +1,9 @@
+## In order to enable it you need to add the following to config:
+##    manage_etc_hosts: True
+##
+## Note, double-hash commented lines will not appear in /etc/hosts
+# 
+## The value '$hostname' will be replaced with the local-hostname
+127.0.1.1 localhost $fqdn $hostname
+::1 localhost $fqdn $hostname
+

@@ -18,31 +18,29 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import sys
 import time
 
-from condense import per_always, boot_finished
+from condense import (per_always, boot_finished)
 from condense import util
-
 frequency = per_always
-
-final_message = "Finished at $TIMESTAMP. Up $UPTIME seconds"
 
 
 def handle(_name, cfg, _cloud, log, args):
     if len(args) != 0:
-        msg_in = args[0]
+        msg_in = str(args[0])
     else:
-        msg_in = util.get_cfg_option_str(cfg, "final_message", final_message)
+        msg_in = util.get_cfg_option_str(cfg, "final_message", "Finished at $TIMESTAMP. Up $UPTIME seconds")
 
+    uptime = "na"
     try:
-        uptimef = open("/proc/uptime")
-        uptime = uptimef.read().split(" ")[0]
-        uptimef.close()
+        with open("/proc/uptime", 'r') as fh:
+            uptime_tmp = fh.read().split(" ")[0]
+            uptime_tmp = uptime_tmp.strip()
+            if uptime_tmp:
+                uptime = uptime_tmp
     except IOError as e:
-        log.warn("unable to open /proc/uptime\n")
-        uptime = "na"
+        log.warn("Unable to open /proc/uptime")
 
     try:
         ts = time.strftime("%a, %d %b %Y %H:%M:%S %z", time.gmtime())
@@ -51,10 +49,9 @@ def handle(_name, cfg, _cloud, log, args):
 
     try:
         subs = {'UPTIME': uptime, 'TIMESTAMP': ts}
-        sys.stdout.write("%s\n" % util.render_string(msg_in, subs))
+        log.info(util.render_string(msg_in, subs))
     except Exception as e:
-        log.warn("failed to render string to stdout: %s" % e)
+        log.warn("Failed to render string: %s" % e)
 
-    fp = open(boot_finished, "wb")
-    fp.write(uptime + "\n")
-    fp.close()
+    with open(boot_finished, "wb") as fp:
+        fp.write(uptime + ":" + ts + "\n")
