@@ -21,7 +21,6 @@
 from condense import data_source
 from condense import log
 from condense import util
-from condense.settings import seeddir as base_seeddir
 
 import os
 import socket
@@ -33,7 +32,6 @@ import boto.utils as boto_utils
 
 class DataSourceEc2(data_source.DataSource):
     api_ver = '2009-04-04'
-    seeddir = base_seeddir + '/ec2'
     metadata_address = "http://169.254.169.254"
 
     def __str__(self):
@@ -100,31 +98,34 @@ class DataSourceEc2(data_source.DataSource):
             mdurls = def_mdurls
 
         urls = []
-        url2base = {False: False}
+        url2base = {}
         for url in mdurls:
             cur = "%s/%s/meta-data/instance-id" % (url, self.api_ver)
             urls.append(cur)
             url2base[cur] = url
 
         starttime = time.time()
+        def status_cb(url, why, details):
+            log.warn("Calling %r failed due to %r: %s", url, why, details)
+
         url = wait_for_metadata_service(urls=urls, max_wait=max_wait,
-                  timeout=timeout, status_cb=log.warn)
+                  timeout=timeout, status_cb=status_cb)
 
         if url:
-            log.debug("Using metadata source: '%s'" % url2base[url])
+            log.info("Using metadata source: '%s'" % url2base.get(url))
         else:
-            log.critical("Giving up on md after %i seconds\n" %
+            log.critical("Giving up on metadata fetching after %i seconds" %
                          int(time.time() - starttime))
 
-        self.metadata_address = url2base[url]
-        return (bool(url))
+        self.metadata_address = url2base.get(url) or False
+        return bool(url)
 
     def device_name_to_device(self, name):
         # consult metadata service, that has
         #  ephemeral0: sdb
         # and return 'sdb' for input 'ephemeral0'
         if 'block-device-mapping' not in self.metadata:
-            return(None)
+            return None
 
         found = None
         for entname, device in self.metadata['block-device-mapping'].items():
@@ -151,7 +152,7 @@ class DataSourceEc2(data_source.DataSource):
             found = "/dev/%s" % found
 
         if os.path.exists(found):
-            return(found)
+            return found
 
         for nfrom, tlist in mappings.items():
             if not short.startswith(nfrom):
@@ -160,7 +161,7 @@ class DataSourceEc2(data_source.DataSource):
                 cand = "/dev/%s%s" % (nto, short[len(nfrom):])
                 if os.path.exists(cand):
                     log.debug("remapped device name %s => %s" % (found, cand))
-                    return(cand)
+                    return cand
 
         # on t1.micro, ephemeral0 will appear in block-device-mapping from
         # metadata, but it will not exist on disk (and never will)
@@ -170,15 +171,6 @@ class DataSourceEc2(data_source.DataSource):
         if name == "ephemeral0":
             return None
         return ofound
-
-    def is_vpc(self):
-        # per comment in LP: #615545
-        ph = "public-hostname"
-        p4 = "public-ipv4"
-        if ((ph not in self.metadata or self.metadata[ph] == "") and
-            (p4 not in self.metadata or self.metadata[p4] == "")):
-            return True
-        return False
 
 
 def wait_for_metadata_service(urls, max_wait=None, timeout=None,
@@ -210,10 +202,10 @@ def wait_for_metadata_service(urls, max_wait=None, timeout=None,
 
     sleeptime = 1
 
-    def nullstatus_cb(msg):
+    def nullstatus_cb(url, why, details):
         return
 
-    if status_cb == None:
+    if not status_cb:
         status_cb = nullstatus_cb
 
     def timeup(max_wait, starttime):
@@ -221,7 +213,6 @@ def wait_for_metadata_service(urls, max_wait=None, timeout=None,
                (time.time() - starttime > max_wait))
 
     log.info("Waiting for meta service at urls %s [maxwait=%s, timeout=%s]", urls, max_wait, timeout)
-
     loop_n = 0
     while True:
         sleeptime = int(loop_n / 5) + 1
@@ -250,10 +241,8 @@ def wait_for_metadata_service(urls, max_wait=None, timeout=None,
             except Exception as e:
                 reason = "unexpected error [%s]" % e
 
-            if log:
-                status_cb("'%s' failed [%s/%ss]: %s" %
-                          (url, int(time.time() - starttime), max_wait,
-                           reason))
+            details = "[%s/%ss]" % (int(time.time() - starttime), max_wait)
+            status_cb(url, reason, details)
 
         if timeup(max_wait, starttime):
             break

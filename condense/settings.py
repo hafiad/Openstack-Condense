@@ -1,20 +1,22 @@
 import os
 
+# Main program name (used in directory creations)
+root_name = 'condense'
+
 # Where we write logging to (besides stdout)
-log_file_tpl = '/var/log/condense.%s.log'
+log_file_tpl = os.path.join('/var/log/', root_name + '.%s.log')
 
 # Root location of condense output
-varlibdir = '/var/lib/condense'
+varlibdir = os.path.join('/var/lib/', root_name)
 cur_instance_link = os.path.join(varlibdir, "instance")
 boot_finished = os.path.join(cur_instance_link, "boot-finished")
-seeddir = os.path.join(varlibdir, "seed")
 
 # Where our root config should be
-system_config = '/etc/condense/condense.cfg'
+system_config = os.path.join('/etc/', root_name, root_name + '.cfg')
 
 # Backup when cfg can't be loaded
 cfg_builtin = {
-    'datasource_list': ["ConfigDrive", "Ec2"],
+    'datasource_list': ["ec2"],
 }
 
 # TBD
@@ -37,11 +39,11 @@ per_always = "always"
 per_once = "once"
 
 # Lookup modules names
-src_mod_tpl = 'condense.sources.%s'
-cc_mod_tpl = 'condense.handlers.%s'
+src_mod_tpl = root_name + '.sources.%s'
+cc_mod_tpl = root_name + '.handlers.%s'
 
 # Where any templates are
-template_tpl = '/etc/condense/templates/%s.tmpl'
+template_tpl = os.path.join('/etc/', root_name, 'templates', '%s.tmpl')
 
-# Initctl events fired
-config_ready_emit = ['initctl', 'emit', 'condense-config']
+# Template for stages
+stage_tpl = "cloud_%s_modules"

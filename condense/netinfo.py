@@ -19,12 +19,12 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import subprocess
+from condense import util
 
 
 def netdev_info(empty=""):
     fields = ("hwaddr", "addr", "bcast", "mask")
-    ifcfg_out = str(subprocess.check_output(["ifconfig", "-a"]))
+    (ifcfg_out, err) = util.subp(["ifconfig", "-a"])
     devs = {}
     for line in ifcfg_out.splitlines():
         if len(line) == 0:
@@ -66,11 +66,11 @@ def netdev_info(empty=""):
                 if dev[field] == "":
                     dev[field] = empty
 
-    return(devs)
+    return devs
 
 
 def route_info():
-    route_out = str(subprocess.check_output(["route", "-n"]))
+    (route_out, err) = util.subp(["route", "-n"])
     routes = []
     for line in route_out.splitlines()[1:]:
         if not line:
@@ -79,17 +79,17 @@ def route_info():
         if toks[0] == "Kernel" or toks[0] == "Destination":
             continue
         routes.append(toks)
-    return(routes)
+    return routes
 
 
 def getgateway():
     for r in route_info():
         if r[3].find("G") >= 0:
             return("%s[%s]" % (r[1], r[7]))
-    return(None)
+    return None
 
 
-def debug_info(pre="ci-info: "):
+def debug_info(pre=">>> "):
     lines = []
     try:
         netdev = netdev_info(empty=".")
@@ -109,7 +109,7 @@ def debug_info(pre="ci-info: "):
         lines.append("%sroute-%d: %-15s %-15s %-15s %-6s %s" %
             (pre, n, r[0], r[1], r[2], r[7], r[3]))
         n = n + 1
-    return('\n'.join(lines))
+    return '\n'.join(lines)
 
 
 if __name__ == '__main__':

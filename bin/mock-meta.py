@@ -2,9 +2,7 @@
 
 import functools
 import httplib
-import itertools
 import logging
-import os
 import sys
 import string
 import random
