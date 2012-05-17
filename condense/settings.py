@@ -43,5 +43,5 @@ cc_mod_tpl = 'condense.handlers.%s'
 # Where any templates are
 template_tpl = '/etc/condense/templates/%s.tmpl'
 
-# Initctl events fired
-config_ready_emit = ['initctl', 'emit', 'condense-config']
+# Template for stages
+stage_tpl = "cloud_%s_modules"
