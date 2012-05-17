@@ -19,12 +19,9 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import subprocess
-import tempfile
 
 from condense import per_always
 from condense import util
-
 frequency = per_always
 
 
@@ -34,9 +31,6 @@ def handle(_name, cfg, cloud, log, _args):
 
     try:
         content = util.shellify(cfg["bootcmd"])
-        tmpf = tempfile.TemporaryFile()
-        tmpf.write(content)
-        tmpf.seek(0)
     except:
         log.warn("Failed to shellify bootcmd")
         raise
@@ -44,8 +38,7 @@ def handle(_name, cfg, cloud, log, _args):
     try:
         env = os.environ.copy()
         env['INSTANCE_ID'] = cloud.get_instance_id()
-        subprocess.check_call(['/bin/sh'], env=env, stdin=tmpf)
-        tmpf.close()
+        util.subp(['/bin/sh'], content, env=env)
     except:
         log.warn("Failed to run commands from bootcmd")
         raise

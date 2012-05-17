@@ -18,11 +18,10 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-from condense import util
-
 import os
 import re
+
+from condense import util
 
 
 def handle(_name, cfg, cloud, log, _args):
@@ -60,7 +59,6 @@ def set_hostname_rh(hostname, log):
     contents = "%s\n" % os.linesep.join(adjusted_lines)
     util.write_file('/etc/sysconfig/network', contents, 0644)
     return old_hostname
-
 
 
 def set_hostname_deb(hostname, log):

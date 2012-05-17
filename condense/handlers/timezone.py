@@ -23,7 +23,6 @@ import shutil
 
 from condense import (util, per_instance)
 frequency = per_instance
-tz_base = "/usr/share/zoneinfo"
 
 
 def handle(_name, cfg, _cloud, log, args):
@@ -35,16 +34,14 @@ def handle(_name, cfg, _cloud, log, args):
     if not timezone:
         return
 
-    tz_file = "%s/%s" % (tz_base, timezone)
-
+    tz_file = os.path.join("/usr/share/zoneinfo", timezone)
     if not os.path.isfile(tz_file):
         log.debug("Invalid timezone %s" % tz_file)
         raise Exception("Invalid timezone %s" % tz_file)
 
     try:
-        fp = open("/etc/timezone", "wb")
-        fp.write("%s\n" % timezone)
-        fp.close()
+        with open("/etc/timezone", "wb") as fp:
+            fp.write("%s\n" % timezone)
     except:
         log.exception("Failed to write to /etc/timezone")
 

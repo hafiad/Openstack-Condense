@@ -198,17 +198,14 @@ def write_file(filename, content, mode=0644, omode="wb"):
             os.chmod(filename, mode)
 
 
-def subp(args, input_=None, allowed_rcs=None):
+def subp(args, input_=None, allowed_rcs=None, env=None):
     if not allowed_rcs:
         allowed_rcs = [0]
     log.info("Running command: `%s` with allowed return codes (%s)",
             " ".join(args), ", ".join([str(rc) for rc in allowed_rcs]))
     sp = subprocess.Popen(args, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, stdin=subprocess.PIPE)
-    if input_ is not None:
-        out, err = sp.communicate(input_)
-    else:
-        out, err = sp.communicate()
+        stderr=subprocess.PIPE, stdin=subprocess.PIPE, env=env)
+    out, err = sp.communicate(input_)
     if sp.returncode not in allowed_rcs:
         raise subprocess.CalledProcessError(sp.returncode, args)
     return (out, err)
@@ -312,7 +309,7 @@ def readurl(url, data=None, timeout=None):
         req = urllib2.Request(url, encoded)
 
     response = urllib2.urlopen(req, **openargs)
-    return(response.read())
+    return response.read()
 
 
 # shellify, takes a list of commands
