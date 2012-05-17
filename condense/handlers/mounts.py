@@ -67,7 +67,7 @@ def handle(_name, cfg, cloud, log, _args):
         if is_mdname(cfgmnt[i][0]):
             newname = cloud.device_name_to_device(cfgmnt[i][0])
             if not newname:
-                log.debug("ignoring nonexistant named mount %s" % cfgmnt[i][0])
+                log.debug("Iignoring nonexistant named mount %s", cfgmnt[i][0])
                 cfgmnt[i][1] = None
             else:
                 if newname.startswith("/"):
